@@ -33,6 +33,7 @@ import {
   ZoomOut,
 } from "lucide-react";
 import Viewport from "./Viewport.jsx";
+import DesktopUpdates from "./DesktopUpdates.jsx";
 import AssetArt from "./AssetArt.jsx";
 import SizeControls from "./SizeControls.jsx";
 import HumanControls from "./HumanControls.jsx";
@@ -566,7 +567,8 @@ export default function App() {
             All yours. All local.
           </div>
           <p>
-            Your models stay in your browser.
+            Your models stay{" "}
+            {desktopMode ? "on this computer" : "in your browser"}.
             <br />
             No account or API key needed.
           </p>
@@ -606,6 +608,15 @@ export default function App() {
             </strong>
           </div>
           <div className="topbar-right">
+            {desktopMode && window.meshcraftDesktop.getUpdateStatus && (
+              <DesktopUpdates
+                Dialog={Dialog}
+                persistBeforeRestart={() => {
+                  localStorage.setItem(DRAFT_KEY, JSON.stringify(config));
+                  localStorage.setItem(STORAGE_KEY, JSON.stringify(collection));
+                }}
+              />
+            )}
             <span className="beta-pill">CHARACTER STUDIO</span>
             <span className="top-divider" />
             <button

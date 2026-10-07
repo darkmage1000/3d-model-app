@@ -7,10 +7,15 @@ module.exports = {
     "desktop/icon.png",
     "release/Meshcraft.html",
     "package.json",
-    "!node_modules{,/**/*}",
   ],
   asar: true,
   npmRebuild: false,
+  publish: [
+    {
+      provider: "generic",
+      url: "https://github.com/darkmage1000/3d-model-app/releases/latest/download/",
+    },
+  ],
   ...(process.env.MESHCRAFT_ELECTRON_CACHE && {
     electronDownload: { cache: process.env.MESHCRAFT_ELECTRON_CACHE },
   }),

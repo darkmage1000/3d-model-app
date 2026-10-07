@@ -6,9 +6,11 @@ const {
   ipcMain,
   shell,
 } = require("electron");
-const { join } = require("node:path");
+const { join, dirname } = require("node:path");
+const { existsSync } = require("node:fs");
 const { pathToFileURL } = require("node:url");
 const { saveModelFiles } = require("./export-files.cjs");
+const { createUpdateController } = require("./updates.cjs");
 
 app.setName("Meshcraft");
 // An explicit profile is useful for isolated smoke tests and does not affect normal installs.
@@ -19,8 +21,24 @@ if (profileArgument)
   app.setPath("userData", profileArgument.slice("--meshcraft-profile=".length));
 
 let mainWindow;
+let updates;
 const htmlPath = join(__dirname, "..", "release", "Meshcraft.html");
 const appURL = pathToFileURL(htmlPath).href;
+
+function requireEditor(event) {
+  if (
+    !mainWindow ||
+    event.sender !== mainWindow.webContents ||
+    event.senderFrame !== mainWindow.webContents.mainFrame ||
+    event.senderFrame.url !== appURL
+  )
+    throw new Error("This action is only available in the Meshcraft editor.");
+}
+
+function showUpdates() {
+  mainWindow?.webContents.send("meshcraft:show-updates");
+  void updates.check();
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -72,14 +90,48 @@ if (!app.requestSingleInstanceLock()) {
     mainWindow.focus();
   });
   app.whenReady().then(() => {
+    const installed =
+      process.platform === "win32" &&
+      app.isPackaged &&
+      existsSync(join(dirname(app.getPath("exe")), "Uninstall Meshcraft.exe"));
+    const updater = installed ? require("electron-updater").autoUpdater : null;
+    if (updater) {
+      updater.logger = null;
+      // Preserve the user's chosen folder, including a folder on their Desktop.
+      updater.installDirectory = dirname(app.getPath("exe"));
+    }
+    updates = createUpdateController({
+      updater,
+      version: app.getVersion(),
+      supported: installed,
+      onStatus: (status) =>
+        mainWindow?.webContents.send("meshcraft:update-status", status),
+      confirmRestart: async () => {
+        const result = await dialog.showMessageBox(mainWindow, {
+          type: "question",
+          title: "Update Meshcraft",
+          message: "Restart Meshcraft to install the update?",
+          detail:
+            "Your saved characters and settings will stay on this computer.",
+          buttons: ["Restart to update", "Keep working"],
+          defaultId: 1,
+          cancelId: 1,
+        });
+        return result.response === 0;
+      },
+    });
+    for (const [channel, action] of [
+      ["meshcraft:update-status", "getStatus"],
+      ["meshcraft:update-check", "check"],
+      ["meshcraft:update-download", "download"],
+      ["meshcraft:update-restart", "restart"],
+    ])
+      ipcMain.handle(channel, (event) => {
+        requireEditor(event);
+        return updates[action]();
+      });
     ipcMain.handle("meshcraft:export", async (event, files) => {
-      if (
-        !mainWindow ||
-        event.sender !== mainWindow.webContents ||
-        event.senderFrame !== mainWindow.webContents.mainFrame ||
-        event.senderFrame.url !== appURL
-      )
-        throw new Error("Export is only available in the Meshcraft editor.");
+      requireEditor(event);
       return saveModelFiles(files, (name, format) =>
         dialog.showSaveDialog(mainWindow, {
           title:
@@ -124,6 +176,8 @@ if (!app.requestSingleInstanceLock()) {
         {
           label: "Help",
           submenu: [
+            { label: "Check for updates", click: showUpdates },
+            { type: "separator" },
             {
               label: "About Meshcraft",
               click: () =>
@@ -140,6 +194,10 @@ if (!app.requestSingleInstanceLock()) {
       ]),
     );
     createWindow();
+    if (installed) {
+      const timer = setTimeout(() => void updates.check(), 8000);
+      timer.unref();
+    }
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });

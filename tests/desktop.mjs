@@ -3,6 +3,8 @@ import { mkdtemp, readFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createServer } from "node:http";
+import { createHash } from "node:crypto";
 import { _electron as electron } from "playwright";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -114,6 +116,259 @@ try {
   passed(
     "The real Electron window loads local app files, renders WebGL offline, and isolates the native bridge",
   );
+
+  await page
+    .getByRole("button", { name: "Check for updates", exact: true })
+    .click();
+  await page
+    .getByText(
+      "Install Meshcraft using the Windows installer to enable updates.",
+    )
+    .waitFor();
+  await page.getByRole("button", { name: "Keep working", exact: true }).click();
+  const rejected = await desktop.instance.evaluate(
+    async ({ BrowserWindow, app }) => {
+      const { join } = process.getBuiltinModule("path");
+      const outsider = new BrowserWindow({
+        show: false,
+        webPreferences: {
+          preload: join(app.getAppPath(), "desktop/preload.cjs"),
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true,
+        },
+      });
+      try {
+        await outsider.loadFile(
+          join(app.getAppPath(), "release/Meshcraft.html"),
+        );
+        return await outsider.webContents.executeJavaScript(
+          "window.meshcraftDesktop.checkForUpdates().then(() => false, () => true)",
+        );
+      } finally {
+        outsider.destroy();
+      }
+    },
+  );
+  assert.equal(rejected, true);
+  passed(
+    "Uninstalled sessions never check remotely and update IPC rejects other windows",
+  );
+
+  const updateBytes = Buffer.concat([
+    Buffer.from("MZ"),
+    Buffer.alloc(8192, 42),
+  ]);
+  const updateHash = createHash("sha512").update(updateBytes).digest("base64");
+  const feedServer = createServer((request, response) => {
+    if (request.url.startsWith("/latest.yml"))
+      response.end(
+        `version: 1.3.0\nfiles:\n  - url: patch.exe\n    sha512: ${updateHash}\n    size: ${updateBytes.length}\npath: patch.exe\nsha512: ${updateHash}\n`,
+      );
+    else if (request.url === "/patch.exe") {
+      response.setHeader("Content-Length", updateBytes.length);
+      response.end(updateBytes);
+    } else {
+      response.statusCode = 404;
+      response.end();
+    }
+  });
+  await new Promise((resolve) => feedServer.listen(0, "127.0.0.1", resolve));
+  const updateConfig = join(folder, "update-config.yml");
+  await (
+    await import("node:fs/promises")
+  ).writeFile(updateConfig, "updaterCacheDirName: desktop-smoke-test\n");
+  try {
+    const result = await desktop.instance.evaluate(
+      async ({ app }, { port, config }) => {
+        const require = process
+          .getBuiltinModule("module")
+          .createRequire(app.getAppPath() + "/package.json");
+        const { join } = require("node:path");
+        const { NsisUpdater } = require(
+          join(app.getAppPath(), "node_modules/electron-updater"),
+        );
+        const { createUpdateController } = require(
+          join(app.getAppPath(), "desktop/updates.cjs"),
+        );
+        const updater = new NsisUpdater();
+        Object.defineProperty(updater.app, "baseCachePath", {
+          value: require("node:path").dirname(config),
+        });
+        updater.logger = null;
+        updater.forceDevUpdateConfig = true;
+        updater.updateConfigPath = config;
+        updater._testOnlyOptions = {
+          platform: "win32",
+          isUseDifferentialDownload: false,
+        };
+        updater.setFeedURL({
+          provider: "generic",
+          url: `http://127.0.0.1:${port}/`,
+        });
+        const controller = createUpdateController({
+          updater,
+          version: app.getVersion(),
+          supported: true,
+          onStatus: () => {},
+          confirmRestart: async () => false,
+        });
+        const checked = await controller.check();
+        const downloaded = await controller.download();
+        return {
+          checked: checked.state,
+          downloaded: downloaded.state,
+          path: updater.installerPath,
+        };
+      },
+      { port: feedServer.address().port, config: updateConfig },
+    );
+    assert.equal(result.checked, "available");
+    assert.equal(result.downloaded, "ready");
+    assert.deepEqual(await readFile(result.path), updateBytes);
+    passed(
+      "The real Electron NSIS updater uses its own session, verifies bytes, and loads packaged production dependencies",
+    );
+  } finally {
+    feedServer.closeAllConnections();
+    await new Promise((resolve) => feedServer.close(resolve));
+  }
+
+  // Exercise the real controller and preload with an injected updater, without
+  // downloading or executing any installer during a graphical smoke test.
+  await desktop.instance.evaluate(({ ipcMain, BrowserWindow, app, dialog }) => {
+    const require = process
+      .getBuiltinModule("module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { EventEmitter } = require("node:events");
+    const { join } = require("node:path");
+    const { createUpdateController } = require(
+      join(app.getAppPath(), "desktop/updates.cjs"),
+    );
+    const window = BrowserWindow.getAllWindows()[0];
+    const fake = new EventEmitter();
+    globalThis.meshcraftUpdateTest = {
+      fake,
+      installs: 0,
+      confirms: 0,
+      choice: 1,
+      offline: false,
+    };
+    const state = globalThis.meshcraftUpdateTest;
+    fake.checkForUpdates = async () => {
+      if (state.offline) throw Error("offline");
+      fake.emit("update-available", { version: "1.3.0" });
+      return {};
+    };
+    fake.downloadUpdate = () =>
+      new Promise((resolve) => {
+        state.finishDownload = resolve;
+      });
+    fake.quitAndInstall = () => {
+      state.installs++;
+    };
+    dialog.showMessageBox = async () => {
+      state.confirms++;
+      return { response: state.choice };
+    };
+    const controller = createUpdateController({
+      updater: fake,
+      version: app.getVersion(),
+      supported: true,
+      onStatus: (status) =>
+        window.webContents.send("meshcraft:update-status", status),
+      confirmRestart: async () =>
+        (await dialog.showMessageBox()).response === 0,
+    });
+    for (const [channel, action] of [
+      ["meshcraft:update-status", "getStatus"],
+      ["meshcraft:update-check", "check"],
+      ["meshcraft:update-download", "download"],
+      ["meshcraft:update-restart", "restart"],
+    ]) {
+      ipcMain.removeHandler(channel);
+      ipcMain.handle(channel, (event) => {
+        if (
+          event.sender !== window.webContents ||
+          event.senderFrame !== window.webContents.mainFrame
+        )
+          throw Error("Untrusted update request");
+        return controller[action]();
+      });
+    }
+  });
+  await page
+    .getByRole("button", { name: "Check for updates", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Download update", exact: true })
+    .waitFor();
+  await page
+    .getByRole("button", { name: "Download update", exact: true })
+    .click();
+  await desktop.instance.evaluate(() =>
+    globalThis.meshcraftUpdateTest.fake.emit("download-progress", {
+      percent: 42,
+    }),
+  );
+  await page.getByText("42%", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Keep working", exact: true }).click();
+  await desktop.instance.evaluate(() => {
+    globalThis.meshcraftUpdateTest.fake.emit("update-downloaded", {
+      version: "1.3.0",
+    });
+    globalThis.meshcraftUpdateTest.finishDownload([]);
+  });
+  await page
+    .getByRole("button", { name: "Check for updates", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Restart to update", exact: true })
+    .click();
+  assert.deepEqual(
+    await desktop.instance.evaluate(() => ({
+      installs: globalThis.meshcraftUpdateTest.installs,
+      confirms: globalThis.meshcraftUpdateTest.confirms,
+    })),
+    { installs: 0, confirms: 1 },
+  );
+  passed(
+    "The native update bridge shows progress and keeps working when restart is canceled",
+  );
+  await desktop.instance.evaluate(() => {
+    globalThis.meshcraftUpdateTest.choice = 0;
+  });
+  await page
+    .getByRole("button", { name: "Restart to update", exact: true })
+    .click();
+  assert.equal(
+    await desktop.instance.evaluate(
+      () => globalThis.meshcraftUpdateTest.installs,
+    ),
+    1,
+  );
+  assert.ok(
+    await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("meshcraft-draft-v1")),
+    ),
+  );
+  passed(
+    "Restart to update saves the current draft and installs only after native confirmation",
+  );
+  await page.getByRole("button", { name: "Keep working", exact: true }).click();
+  await desktop.instance.evaluate(() => {
+    globalThis.meshcraftUpdateTest.offline = true;
+    globalThis.meshcraftUpdateTest.fake.emit("error", Error("offline"));
+  });
+  await page
+    .getByRole("button", { name: "Check for updates", exact: true })
+    .click();
+  await page
+    .getByRole("alert")
+    .filter({ hasText: "The update could not be completed" })
+    .waitFor();
+  await page.getByRole("button", { name: "Keep working", exact: true }).click();
+  passed("An offline update error leaves the editor usable");
 
   await page.getByRole("button", { name: "Humans", exact: true }).click();
   await page.getByRole("tab", { name: "Face", exact: true }).click();

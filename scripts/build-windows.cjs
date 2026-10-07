@@ -1,6 +1,7 @@
 const { build, Platform, Arch } = require("electron-builder");
 const { basename, dirname, join, resolve } = require("node:path");
 const config = require("../electron-builder.config.cjs");
+const { prepareUpdateFeed } = require("./prepare-update-feed.cjs");
 
 // electron-builder 26.15.3 normally executes a temporary NSIS stub in Wine
 // to obtain its uninstaller. Its bundled Linux Wine lacks the 32-bit DLLs
@@ -37,6 +38,8 @@ const installerOnly = process.argv.includes("--installer-only");
 build({
   projectDir: resolve(__dirname, ".."),
   config,
+  // Release assets and update metadata are published together by the workflow.
+  publish: "never",
   targets: Platform.WINDOWS.createTarget(
     installerOnly ? ["nsis"] : ["nsis", "zip"],
     Arch.x64,
@@ -51,6 +54,12 @@ build({
   }),
 })
   .then((artifacts) => {
+    // Versioned download URLs stay valid if another release is published later.
+    // They also let the updater find the previous release's differential blockmap.
+    prepareUpdateFeed(
+      resolve(__dirname, "..", config.directories.output),
+      require("../package.json").version,
+    );
     console.log(`\nWindows downloads:\n${artifacts.join("\n")}`);
   })
   .catch((error) => {
