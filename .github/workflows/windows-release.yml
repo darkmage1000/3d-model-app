@@ -1,0 +1,64 @@
+name: Build Windows download
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Check release version
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") {
+            throw "The Git tag must match package.json: v$version"
+          }
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+      - name: Build Windows installer and portable app
+        run: npm run build:windows
+      - name: Generate download checksums
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          $files = @(
+            "desktop-release/Meshcraft-Setup-$version-Windows-x64.exe",
+            "desktop-release/Meshcraft-$version-Windows-x64.zip"
+          )
+          $checksums = foreach ($file in $files) {
+            $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $file
+            "$($hash.Hash.ToLowerInvariant()) *$(Split-Path -Leaf $file)"
+          }
+          $checksums | Set-Content -Encoding ascii desktop-release/SHA256SUMS.txt
+      - name: Publish Windows downloads
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          $version = node -p "require('./package.json').version"
+          gh release create "v$version" `
+            "desktop-release/Meshcraft-Setup-$version-Windows-x64.exe" `
+            "desktop-release/Meshcraft-$version-Windows-x64.zip" `
+            "desktop-release/SHA256SUMS.txt" `
+            --target "$env:GITHUB_SHA" `
+            --title "Meshcraft $version for Windows" `
+            --notes-file desktop/WINDOWS-RELEASE.md
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub release publication failed.' }
