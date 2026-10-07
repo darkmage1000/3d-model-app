@@ -66,7 +66,7 @@ export const ASSETS = [
   ...HUMAN_PRESETS.map((preset) => ({ ...preset, category: "Humans" })),
 ];
 
-export const SCALE_LIMITS = Object.freeze({ min: 0.25, max: 100 });
+export const SCALE_LIMITS = Object.freeze({ min: 0.01, max: 1000 });
 export function normalizeScale(value) {
   const number = Number(value);
   return Number.isFinite(number)

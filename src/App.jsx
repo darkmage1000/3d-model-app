@@ -1131,6 +1131,7 @@ export default function App() {
                       <SizeControls
                         value={config.scale}
                         stats={stats}
+                        measurementReady={stats?.config === config}
                         onChange={(scale) => patch({ scale })}
                         creature={creatureMode}
                         onBoss={bossBuild}

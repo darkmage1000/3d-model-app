@@ -359,7 +359,9 @@ try {
     .getByRole("button", { name: "Open Offline giant", exact: true })
     .click();
   assert.equal(
-    await page.getByLabel("Scale", { exact: true }).inputValue(),
+    await page
+      .getByLabel("Scale", { exact: true })
+      .getAttribute("aria-valuenow"),
     "10",
   );
   await page.getByRole("button", { name: "Export model", exact: true }).click();

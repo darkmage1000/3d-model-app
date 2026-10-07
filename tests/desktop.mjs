@@ -163,7 +163,7 @@ try {
   const feedServer = createServer((request, response) => {
     if (request.url.startsWith("/latest.yml"))
       response.end(
-        `version: 1.3.0\nfiles:\n  - url: patch.exe\n    sha512: ${updateHash}\n    size: ${updateBytes.length}\npath: patch.exe\nsha512: ${updateHash}\n`,
+        `version: 1.4.0\nfiles:\n  - url: patch.exe\n    sha512: ${updateHash}\n    size: ${updateBytes.length}\npath: patch.exe\nsha512: ${updateHash}\n`,
       );
     else if (request.url === "/patch.exe") {
       response.setHeader("Content-Length", updateBytes.length);
@@ -257,7 +257,7 @@ try {
     const state = globalThis.meshcraftUpdateTest;
     fake.checkForUpdates = async () => {
       if (state.offline) throw Error("offline");
-      fake.emit("update-available", { version: "1.3.0" });
+      fake.emit("update-available", { version: "1.4.0" });
       return {};
     };
     fake.downloadUpdate = () =>
@@ -315,7 +315,7 @@ try {
   await page.getByRole("button", { name: "Keep working", exact: true }).click();
   await desktop.instance.evaluate(() => {
     globalThis.meshcraftUpdateTest.fake.emit("update-downloaded", {
-      version: "1.3.0",
+      version: "1.4.0",
     });
     globalThis.meshcraftUpdateTest.finishDownload([]);
   });
@@ -512,6 +512,72 @@ try {
   assert.deepEqual(await readdir(folder), before);
   passed(
     "Canceling the native save dialog leaves the export panel open and writes no files",
+  );
+  await page.getByRole("button", { name: "Close dialog", exact: true }).click();
+  await page.getByRole("button", { name: "Mossling", exact: true }).click();
+  const heightPresets = page.getByRole("group", {
+    name: "Height presets",
+    exact: true,
+  });
+  assert.equal(await heightPresets.getByRole("button").count(), 14);
+  for (const [label, height] of [
+    ["Tiny", 0.15],
+    ["Pet", 0.5],
+    ["Nearly human", 1.5],
+    ["Human-sized", 1.8],
+    ["World boss", 500],
+  ]) {
+    await heightPresets
+      .getByRole("button", { name: `${label} size (${height}m)`, exact: true })
+      .click();
+    await page.waitForFunction(
+      (height) =>
+        Math.abs(
+          Number(
+            document.querySelector('[aria-label="Height in meters"]').value,
+          ) - height,
+        ) < 0.001,
+      height,
+    );
+  }
+  await heightPresets
+    .getByRole("button", { name: "Tiny size (0.15m)", exact: true })
+    .click();
+  await page.waitForFunction(
+    () =>
+      document.querySelector('[aria-label="Height in meters"]').value ===
+      "0.15",
+  );
+  const tinyScale = Number(
+    await page.getByLabel("Exact scale", { exact: true }).inputValue(),
+  );
+  assert.ok(tinyScale < 0.25);
+  await page
+    .getByLabel("Asset name", { exact: true })
+    .fill("Desktop pocket pal");
+  await page
+    .getByRole("button", { name: "Save to collection", exact: true })
+    .click();
+  await chooseFile(join(folder, "Pocket pal.glb"));
+  await page.getByRole("button", { name: "Export model", exact: true }).click();
+  await page.getByRole("button", { name: "Save GLB", exact: true }).click();
+  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  const pocket = glbJSON(await readFile(join(folder, "Pocket pal.glb")));
+  assert.ok(pocket.nodes.some((node) => node.scale?.[0] === tinyScale));
+  await desktop.instance.close();
+  desktop = await launch();
+  page = desktop.page;
+  await page.waitForFunction(
+    () =>
+      document.querySelector('[aria-label="Height in meters"]').value ===
+      "0.15",
+  );
+  assert.equal(
+    await page.getByLabel("Asset name", { exact: true }).inputValue(),
+    "Desktop pocket pal",
+  );
+  passed(
+    "All 14 height presets work on desktop; tiny sizes export and survive a full restart",
   );
   assert.deepEqual(errors, []);
   await page.screenshot({ path: join(folder, "desktop.png"), fullPage: true });

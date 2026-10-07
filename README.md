@@ -4,9 +4,9 @@ A Windows desktop and browser studio for making original low-poly humans, creatu
 
 ## Windows desktop app
 
-For **Windows 10/11, 64-bit**, download `https://github.com/darkmage1000/3d-model-app/releases/download/v1.2.0/Meshcraft-Setup-1.2.0-Windows-x64.exe`, open it, choose an installation folder, and finish the setup. Launch **Meshcraft** from the desktop shortcut or Start menu. The app has its own window and bundled runtime; no browser, Node.js, server, or internet connection is needed to use it.
+For **Windows 10/11, 64-bit**, download `https://github.com/darkmage1000/3d-model-app/releases/download/v1.3.0/Meshcraft-Setup-1.3.0-Windows-x64.exe`, open it, choose an installation folder, and finish the setup. Launch **Meshcraft** from the desktop shortcut or Start menu. The app has its own window and bundled runtime; no browser, Node.js, server, or internet connection is needed to use it.
 
-For a portable folder instead, download `https://github.com/darkmage1000/3d-model-app/releases/download/v1.2.0/Meshcraft-1.2.0-Windows-x64.zip`, extract **all** files into a folder, and open `Meshcraft.exe`. Keep the executable with its companion files. The installer and portable version use the same local desktop profile at `%APPDATA%\Meshcraft`. Saved drafts and collections survive closing the app and updates. Uninstalling preserves this profile. Browser-version collections use separate storage and are not automatically transferred.
+For a portable folder instead, download `https://github.com/darkmage1000/3d-model-app/releases/download/v1.3.0/Meshcraft-1.3.0-Windows-x64.zip`, extract **all** files into a folder, and open `Meshcraft.exe`. Keep the executable with its companion files. The installer and portable version use the same local desktop profile at `%APPDATA%\Meshcraft`. Saved drafts and collections survive closing the app and updates. Uninstalling preserves this profile. Browser-version collections use separate storage and are not automatically transferred.
 
 **Save GLB** opens a native Save dialog. **Save OBJ + MTL** asks for the OBJ location once and saves both files in that folder. Renaming the OBJ also renames its MTL and updates the material reference. Canceling writes no files. **File → Open exports folder** opens the default Downloads folder; a custom export can be saved elsewhere. Window menus provide standard edit, reload, zoom, and fullscreen shortcuts.
 
@@ -65,7 +65,26 @@ The cache path avoids writing to the cloud machine's protected home directory. O
 
 ## Large creatures and bosses
 
-The size panel supports **0.25–100× scale**, with **Companion (0.5×)**, **Large (3×)**, **Giant (10×)**, and **Titan (30×)** presets. Enter an **Exact scale** or a **Height in meters**, then press Enter or leave the field to apply it. Height measures the configured pose, including horns, wings, and other high features; it is limited by the same scale range. Editing anatomy afterward can change the resulting height.
+The size panel supports **0.01–1000× scale**, with 14 physical height presets:
+
+| Preset       | Height |
+| ------------ | ------ |
+| Tiny         | 15 cm  |
+| Miniature    | 30 cm  |
+| Pet          | 50 cm  |
+| Companion    | 85 cm  |
+| Small        | 1.2 m  |
+| Nearly human | 1.5 m  |
+| Human-sized  | 1.8 m  |
+| Tall         | 2.5 m  |
+| Large        | 4 m    |
+| Huge         | 8 m    |
+| Giant        | 15 m   |
+| Titan        | 40 m   |
+| Colossal     | 100 m  |
+| World boss   | 500 m  |
+
+Height presets calculate the scale from the current model, so Pet means 50 cm and Human-sized means 1.8 m across different species. Unreachable heights for an unusually proportioned model are disabled. Height includes the configured pose, horns, wings, and other highest features; changing anatomy afterward can change the resulting height. Selected presets highlight when the measured height matches. The original **Companion (0.5×)**, **Large (3×)**, **Giant (10×)** and **Titan (30×)** remain in a separate Scale shortcuts group. The scale slider gives equal room to small and giant ranges. Enter an Exact scale or Height in meters and press Enter or leave the field to apply it. Hide the 1.8 m reference person to inspect a tiny creature; camera fitting now zooms close to small models. Size is preserved in both GLB and OBJ exports, drafts, and collections.
 
 **Boss proportions** gives the current creature a broader body, smaller head, longer snout, longer legs, fierce features, and back spikes, and increases its scale to at least 10×. Its existing body plan, element, and other custom features remain editable. Try “a giant green lizard with no wings” for a reptile starting point, or use “large,” “giant,” “huge,” “massive,” “titan,” or “colossal” in creature prompts to select a larger scale.
 

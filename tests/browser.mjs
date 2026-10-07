@@ -165,8 +165,8 @@ try {
   passed("Unsupported prompts explain the available templates");
 
   await page.getByLabel("Asset name").fill("Test elixir");
-  await page.getByLabel("Scale", { exact: true }).fill("2");
-  await page.getByLabel("Scale", { exact: true }).dispatchEvent("input");
+  await page.getByLabel("Exact scale", { exact: true }).fill("2");
+  await page.getByLabel("Exact scale", { exact: true }).press("Enter");
   await page
     .getByRole("button", { name: "Wireframe view", exact: true })
     .click();
@@ -211,7 +211,9 @@ try {
     .click();
   assert.equal(await page.getByLabel("Asset name").inputValue(), "Test elixir");
   assert.equal(
-    await page.getByLabel("Scale", { exact: true }).inputValue(),
+    await page
+      .getByLabel("Scale", { exact: true })
+      .getAttribute("aria-valuenow"),
     "2",
   );
   passed(
@@ -911,7 +913,9 @@ try {
     () => JSON.parse(localStorage.getItem("meshcraft-draft-v1")).scale === 10,
   );
   assert.equal(
-    await page.getByLabel("Scale", { exact: true }).inputValue(),
+    await page
+      .getByLabel("Scale", { exact: true })
+      .getAttribute("aria-valuenow"),
     "10",
   );
   await page.getByLabel("Height in meters", { exact: true }).fill("25");
@@ -997,7 +1001,8 @@ try {
     .getByRole("button", { name: "Open Titan hunter", exact: true })
     .click();
   await page.waitForFunction(
-    () => document.querySelector("#scale")?.value === "100",
+    () =>
+      document.querySelector("#scale")?.getAttribute("aria-valuenow") === "100",
   );
   await page
     .getByLabel("Viewport animation", { exact: true })
@@ -1043,6 +1048,113 @@ try {
   assert.ok(loadedTitan.boneCount > 10);
   passed(
     "Giant presets, meter height, 100x rendering, size reference, boss builds, saved sizes, and animated GLB exports work",
+  );
+  await page.getByRole("button", { name: "Mossling", exact: true }).click();
+  await page.getByLabel("Show 1.8 m person", { exact: true }).uncheck();
+  assert.equal(
+    await page
+      .getByRole("group", { name: "Height presets", exact: true })
+      .getByRole("button")
+      .count(),
+    14,
+  );
+  for (const [label, height] of [
+    ["Tiny", 0.15],
+    ["Pet", 0.5],
+    ["Nearly human", 1.5],
+    ["Human-sized", 1.8],
+    ["World boss", 500],
+  ]) {
+    const button = page.getByRole("button", {
+      name: `${label} size (${height}m)`,
+      exact: true,
+    });
+    await button.click();
+    await page.waitForFunction(
+      (height) =>
+        Math.abs(
+          Number(
+            document.querySelector('[aria-label="Height in meters"]').value,
+          ) - height,
+        ) < 0.001,
+      height,
+    );
+    assert.equal(await button.getAttribute("aria-pressed"), "true");
+  }
+  await page
+    .getByRole("button", { name: "Tiny size (0.15m)", exact: true })
+    .click();
+  await page.waitForFunction(
+    () =>
+      document.querySelector('[aria-label="Height in meters"]').value ===
+      "0.15",
+  );
+  await page.evaluate(
+    () =>
+      new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve)),
+      ),
+  );
+  const tinyCoverage = await page.locator("canvas").evaluate((canvas) => {
+    const gl = canvas.getContext("webgl2"),
+      pixels = new Uint8Array(canvas.width * canvas.height * 4);
+    gl.readPixels(
+      0,
+      0,
+      canvas.width,
+      canvas.height,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      pixels,
+    );
+    let count = 0;
+    for (let i = 0; i < pixels.length; i += 4)
+      if (
+        pixels[i + 3] > 230 &&
+        pixels[i + 1] > pixels[i] * 1.1 &&
+        pixels[i + 1] > pixels[i + 2] * 1.1 &&
+        pixels[i] < 180
+      )
+        count++;
+    return count;
+  });
+  assert.ok(
+    tinyCoverage > 2000,
+    `Tiny creatures must fit close enough to inspect (${tinyCoverage} green model pixels)`,
+  );
+  await page.getByLabel("Asset name", { exact: true }).fill("Pocket pal");
+  await page
+    .getByRole("button", { name: "Save to collection", exact: true })
+    .click();
+  await page.reload();
+  await page.getByRole("button", { name: /My collection/ }).click();
+  await page
+    .getByRole("button", { name: "Open Pocket pal", exact: true })
+    .click();
+  await page.waitForFunction(
+    () =>
+      document.querySelector('[aria-label="Height in meters"]').value ===
+      "0.15",
+  );
+  await page.getByRole("button", { name: "Export model", exact: true }).click();
+  const pocketEvent = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download GLB", exact: true }).click();
+  const pocketBytes = await readFile(await (await pocketEvent).path());
+  const pocketHeight = await page.evaluate(async (b64) => {
+    const { GLTFLoader } =
+      await import("/node_modules/three/examples/jsm/loaders/GLTFLoader.js");
+    const { Vector3, Box3 } =
+      await import("/node_modules/three/build/three.module.js");
+    const gltf = await new GLTFLoader().parseAsync(
+      Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)).buffer,
+      "",
+    );
+    gltf.scene.updateMatrixWorld(true);
+    return new Box3().setFromObject(gltf.scene).getSize(new Vector3()).y;
+  }, pocketBytes.toString("base64"));
+  assert.ok(Math.abs(pocketHeight - 0.15) < 0.0001);
+  passed(
+    "Physical height presets cover tiny pets, human-sized creatures and world bosses; tiny previews, saves and GLB meters stay accurate",
   );
   assert.deepEqual(
     errors,

@@ -11,6 +11,12 @@ import {
 } from "../src/models.js";
 import { CREATURE_PRESETS, makeCreatureConfig } from "../src/creatures.js";
 import { buildPreviewModel, bakeSkinnedPose } from "../src/rigging.js";
+import {
+  SIZE_PRESETS,
+  scaleForHeight,
+  scaleToSlider,
+  sliderToScale,
+} from "../src/sizes.js";
 
 test("Large creatures scale to 100x without clipping the generator at its old limit", () => {
   for (const preset of CREATURE_PRESETS) {
@@ -76,10 +82,11 @@ test("Giant rig rest binding and baked OBJ vertices preserve dimensions", () => 
 });
 
 test("Size bounds reject non-finite scales and safely clamp explicit inputs", () => {
-  assert.deepEqual(SCALE_LIMITS, { min: 0.25, max: 100 });
+  assert.deepEqual(SCALE_LIMITS, { min: 0.01, max: 1000 });
   assert.equal(normalizeScale(30), 30);
-  assert.equal(normalizeScale(200), 100);
-  assert.equal(normalizeScale(-1), 0.25);
+  assert.equal(normalizeScale(200), 200);
+  assert.equal(normalizeScale(2000), 1000);
+  assert.equal(normalizeScale(-1), 0.01);
   assert.equal(normalizeScale(NaN), 1);
   assert.equal(normalizeScale(Infinity), 1);
 });
@@ -103,4 +110,71 @@ test("Giant, large, and titan prompts set scale; lizard prompts build reptile an
   assert.equal(lizard.creature.wings, "none");
   assert.equal(lizard.creature.snout, 1);
   assert.equal(lizard.creature.tail, "pointed");
+});
+
+test("Height presets produce consistent physical sizes across different creatures without changing their geometry", () => {
+  for (const preset of CREATURE_PRESETS) {
+    const config = makeCreatureConfig(preset.id);
+    const base = buildPreviewModel(config);
+    const original = modelStats(base);
+    for (const size of SIZE_PRESETS) {
+      const scale = scaleForHeight(
+        size.height,
+        original.size[1] / original.scale,
+      );
+      const model = buildPreviewModel({ ...config, scale });
+      const result = modelStats(model);
+      assert.ok(
+        Math.abs(result.size[1] - size.height) <
+          Math.max(0.00001, size.height * 0.00001),
+        `${preset.name} at ${size.label}`,
+      );
+      assert.equal(result.triangles, original.triangles);
+      disposeModel(model);
+    }
+    disposeModel(base);
+  }
+  assert.equal(scaleForHeight(0.5, 0), null);
+  assert.equal(scaleForHeight(NaN, 1), null);
+});
+
+test("Tiny and extreme scales preserve rigged and baked positions with finite animation", () => {
+  for (const scale of [SCALE_LIMITS.min, SCALE_LIMITS.max]) {
+    const config = { ...makeCreatureConfig("creature-emberfang"), scale };
+    const model = buildPreviewModel(config);
+    const baked = bakeSkinnedPose(model);
+    const a = modelStats(model),
+      b = modelStats(baked);
+    for (let axis = 0; axis < 3; axis++)
+      assert.ok(
+        Math.abs(a.size[axis] - b.size[axis]) <
+          Math.max(1e-6, a.size[axis] * 1e-5),
+      );
+    const mixer = new THREE.AnimationMixer(model);
+    mixer.clipAction(model.animations[1]).play();
+    mixer.update(0.4);
+    model.updateMatrixWorld(true);
+    model.rig.skeleton.update();
+    for (const part of model.children.filter((part) => part.isSkinnedMesh))
+      assert.ok(
+        part
+          .getVertexPosition(0, new THREE.Vector3())
+          .toArray()
+          .every(Number.isFinite),
+      );
+    mixer.stopAllAction();
+    mixer.uncacheRoot(model);
+    disposeModel(model);
+    disposeModel(baked);
+  }
+});
+
+test("The scale slider remains precise from tiny creatures to world bosses", () => {
+  for (const scale of [0.01, 0.02, 0.1, 0.5, 1, 3, 10, 100, 500, 1000])
+    assert.ok(
+      Math.abs(sliderToScale(scaleToSlider(scale)) - scale) < scale * 0.00001,
+    );
+  assert.equal(sliderToScale(-1), 0.01);
+  assert.equal(sliderToScale(101), 1000);
+  assert.equal(sliderToScale(NaN), 1);
 });

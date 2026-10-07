@@ -1,9 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { SCALE_LIMITS, normalizeScale } from "./models.js";
+import {
+  SIZE_PRESETS,
+  scaleForHeight,
+  scaleToSlider,
+  sliderToScale,
+} from "./sizes.js";
 
 export default function SizeControls({
   value,
   stats,
+  measurementReady = true,
   onChange,
   creature,
   onBoss,
@@ -58,11 +65,15 @@ export default function SizeControls({
         id="scale"
         className="range-input"
         type="range"
-        min={SCALE_LIMITS.min}
-        max={SCALE_LIMITS.max}
-        step="0.05"
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
+        min="0"
+        max="100"
+        step="0.1"
+        value={scaleToSlider(value)}
+        aria-valuemin={SCALE_LIMITS.min}
+        aria-valuemax={SCALE_LIMITS.max}
+        aria-valuenow={value}
+        aria-valuetext={`${value.toFixed(2)} times original size`}
+        onChange={(e) => onChange(sliderToScale(Number(e.target.value)))}
       />
       <label className="size-exact">
         Exact scale{" "}
@@ -72,7 +83,7 @@ export default function SizeControls({
             type="number"
             min={SCALE_LIMITS.min}
             max={SCALE_LIMITS.max}
-            step="0.05"
+            step="0.01"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onBlur={commitScale}
@@ -102,6 +113,47 @@ export default function SizeControls({
           <span>m</span>
         </div>
       </label>
+      <p className="size-preset-label">Height presets</p>
+      <div
+        className="size-presets height-presets"
+        role="group"
+        aria-label="Height presets"
+      >
+        {SIZE_PRESETS.map((preset) => {
+          const next = scaleForHeight(preset.height, baseHeight);
+          const reachable =
+            measurementReady &&
+            next !== null &&
+            Math.abs(next * baseHeight - preset.height) <
+              Math.max(0.001, preset.height * 0.0001);
+          return (
+            <button
+              key={preset.label}
+              aria-label={`${preset.label} size (${preset.height}m)`}
+              aria-pressed={
+                height !== null &&
+                Math.abs(height - preset.height) <
+                  Math.max(0.001, preset.height * 0.0001)
+              }
+              disabled={!reachable}
+              title={
+                reachable
+                  ? `${preset.height} meters tall`
+                  : "Outside this model’s scale range"
+              }
+              onClick={() => onChange(next)}
+            >
+              {preset.label}
+              <span>
+                {preset.height < 1
+                  ? `${Math.round(preset.height * 100)} cm`
+                  : `${preset.height} m`}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="size-preset-label">Scale shortcuts</p>
       <div
         className="size-presets"
         role="group"
@@ -140,8 +192,10 @@ export default function SizeControls({
         </>
       )}
       <p className="size-note">
-        Up to 100× scale. Height includes the posed model’s highest features.
-        Size is preserved in exports; the camera fits large creatures into view.
+        {SCALE_LIMITS.min}–{SCALE_LIMITS.max}× scale. Height includes the posed
+        model’s highest features and can change when you edit anatomy. Size is
+        preserved in exports. Hide the person to inspect tiny creatures up
+        close.
       </p>
     </div>
   );

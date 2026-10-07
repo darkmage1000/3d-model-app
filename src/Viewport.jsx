@@ -236,7 +236,7 @@ export default function Viewport({
       clips: s.model.animations.map((c) => c.name),
       meshes: s.model.children.filter((c) => c.isSkinnedMesh).length,
     });
-    callbacks.current.onStats(modelStats(s.model));
+    callbacks.current.onStats({ ...modelStats(s.model), config });
   }, [config, ready]);
 
   useEffect(() => {
@@ -298,12 +298,12 @@ export default function Viewport({
       size.y,
       size.x / Math.min(s.camera.aspect || 1, 1.5),
       size.z,
-      focusPart ? 0.45 : 1,
+      focusPart ? 0.01 : 0.02,
     );
     const distance =
       (framing / (2 * Math.tan(THREE.MathUtils.degToRad(s.camera.fov / 2)))) *
       1.2;
-    s.camera.near = Math.max(0.01, span / 10000);
+    s.camera.near = Math.max(0.0001, framing / 10000);
     s.camera.far = Math.max(100, distance + span * 20);
     s.camera.updateProjectionMatrix();
     s.camera.position
